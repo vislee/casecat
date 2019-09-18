@@ -100,6 +100,7 @@ func (self *request) newRequest(addr string) (*http.Request, error) {
 type response struct {
 	Status  matchKV   `json:"status"`
 	Headers []matchKV `json:"headers"`
+	Cookies []matchKV `json:"cookies"`
 	Body    matchKV   `json:"body"`
 }
 
@@ -116,11 +117,46 @@ func (self *response) Match(resp *http.Response) bool {
 
 	// resp.Header
 	for _, header := range self.Headers {
-		h := resp.Header.Get(header.Key)
+		var h string
+
+		if header.Key == "set-cookie" || header.Key == "Set-Cookie" {
+			for _, ck := range resp.Cookies() {
+				if len(h) == 0 {
+					h = ck.String()
+				} else {
+					h = h + ", " + ck.String()
+				}
+			}
+
+		} else {
+			h = resp.Header.Get(header.Key)
+		}
 
 		if ok, msg := header.Match(h); !ok {
 			log.Println(msg)
 			res = false
+		}
+	}
+
+	// resp cookie
+	if len(self.Cookies) > 0 {
+		resp_cks := make(map[string]string, len(resp.Cookies()))
+		for _, rck := range resp.Cookies() {
+			resp_cks[rck.Name] = rck.Value
+		}
+
+		for _, ck := range self.Cookies {
+
+			val, ok := resp_cks[ck.Key]
+			if !ok {
+				val = ""
+			}
+
+			if ok, msg := ck.Match(val); !ok {
+				log.Println(msg)
+				res = false
+				break
+			}
 		}
 	}
 
@@ -351,6 +387,7 @@ func caseExample() string {
 	var e = make([]Case, 1, 1)
 	e[0].Req.Headers = map[string]string{"": ""}
 	e[0].Resp.Headers = make([]matchKV, 1, 1)
+	e[0].Resp.Cookies = make([]matchKV, 1, 1)
 
 	es, err := json.MarshalIndent(e, "", "  ")
 	if err != nil {
